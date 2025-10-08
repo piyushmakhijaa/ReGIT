@@ -1,0 +1,429 @@
+import axios from "axios";
+
+class GitHubService {
+  constructor(accessToken) {
+    this.accessToken = accessToken;
+    this.baseURL = "https://api.github.com";
+    this.headers = {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/vnd.github.v3+json",
+      "User-Agent": "Codeissance-Hackathon-App"
+    };
+  }
+
+  // Get user's repositories
+  async getUserRepos() {
+    try {
+      const response = await axios.get(`${this.baseURL}/user/repos`, {
+        headers: this.headers,
+        params: {
+          sort: "updated",
+          per_page: 100
+        }
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to fetch repositories: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Get a specific repository
+  async getRepo(owner, repo) {
+    try {
+      const response = await axios.get(`${this.baseURL}/repos/${owner}/${repo}`, {
+        headers: this.headers
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to fetch repository: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Create an issue
+  async createIssue(owner, repo, issueData) {
+    try {
+      const response = await axios.post(`${this.baseURL}/repos/${owner}/${repo}/issues`, {
+        title: issueData.title,
+        body: issueData.body,
+        labels: issueData.labels || [],
+        assignees: issueData.assignees || []
+      }, {
+        headers: this.headers
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to create issue: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Get issues for a repository
+  async getIssues(owner, repo, options = {}) {
+    try {
+      const response = await axios.get(`${this.baseURL}/repos/${owner}/${repo}/issues`, {
+        headers: this.headers,
+        params: {
+          state: options.state || "open",
+          sort: options.sort || "created",
+          direction: options.direction || "desc",
+          per_page: options.per_page || 30
+        }
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to fetch issues: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Create a pull request
+  async createPullRequest(owner, repo, prData) {
+    try {
+      const response = await axios.post(`${this.baseURL}/repos/${owner}/${repo}/pulls`, {
+        title: prData.title,
+        body: prData.body,
+        head: prData.head, // source branch
+        base: prData.base, // target branch
+        draft: prData.draft || false
+      }, {
+        headers: this.headers
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to create pull request: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Get pull requests for a repository
+  async getPullRequests(owner, repo, options = {}) {
+    try {
+      const response = await axios.get(`${this.baseURL}/repos/${owner}/${repo}/pulls`, {
+        headers: this.headers,
+        params: {
+          state: options.state || "open",
+          sort: options.sort || "created",
+          direction: options.direction || "desc",
+          per_page: options.per_page || 30
+        }
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to fetch pull requests: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Get repository branches
+  async getBranches(owner, repo) {
+    try {
+      const response = await axios.get(`${this.baseURL}/repos/${owner}/${repo}/branches`, {
+        headers: this.headers
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to fetch branches: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Get repository commits
+  async getCommits(owner, repo, options = {}) {
+    try {
+      const response = await axios.get(`${this.baseURL}/repos/${owner}/${repo}/commits`, {
+        headers: this.headers,
+        params: {
+          sha: options.sha || "main",
+          per_page: options.per_page || 30
+        }
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to fetch commits: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Get a specific issue
+  async getIssue(owner, repo, issueNumber) {
+    try {
+      const response = await axios.get(`${this.baseURL}/repos/${owner}/${repo}/issues/${issueNumber}`, {
+        headers: this.headers
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to fetch issue: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Update an issue
+  async updateIssue(owner, repo, issueNumber, issueData) {
+    try {
+      const response = await axios.patch(`${this.baseURL}/repos/${owner}/${repo}/issues/${issueNumber}`, {
+        title: issueData.title,
+        body: issueData.body,
+        state: issueData.state,
+        labels: issueData.labels,
+        assignees: issueData.assignees
+      }, {
+        headers: this.headers
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to update issue: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Get a specific pull request
+  async getPullRequest(owner, repo, prNumber) {
+    try {
+      const response = await axios.get(`${this.baseURL}/repos/${owner}/${repo}/pulls/${prNumber}`, {
+        headers: this.headers
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to fetch pull request: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Update a pull request
+  async updatePullRequest(owner, repo, prNumber, prData) {
+    try {
+      const response = await axios.patch(`${this.baseURL}/repos/${owner}/${repo}/pulls/${prNumber}`, {
+        title: prData.title,
+        body: prData.body,
+        state: prData.state,
+        base: prData.base
+      }, {
+        headers: this.headers
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to update pull request: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Merge a pull request
+  async mergePullRequest(owner, repo, prNumber, mergeData) {
+    try {
+      const response = await axios.put(`${this.baseURL}/repos/${owner}/${repo}/pulls/${prNumber}/merge`, {
+        commit_title: mergeData.commit_title,
+        commit_message: mergeData.commit_message,
+        merge_method: mergeData.merge_method || "merge"
+      }, {
+        headers: this.headers
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to merge pull request: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Check if user has access to repository
+  async checkRepoAccess(owner, repo) {
+    try {
+      await this.getRepo(owner, repo);
+      return true;
+    } catch (error) {
+      if (error.response?.status === 404) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  // Get latest commit for a repository
+  async getLatestCommit(owner, repo, branch = 'main') {
+    try {
+      const response = await axios.get(`${this.baseURL}/repos/${owner}/${repo}/commits/${branch}`, {
+        headers: this.headers
+      });
+      return {
+        hash: response.data.sha,
+        message: response.data.commit.message,
+        date: new Date(response.data.commit.committer.date),
+        author: response.data.commit.author.name,
+        url: response.data.html_url
+      };
+    } catch (error) {
+      // Try with master branch if main fails
+      if (branch === 'main') {
+        try {
+          return await this.getLatestCommit(owner, repo, 'master');
+        } catch (masterError) {
+          throw new Error(`Failed to fetch latest commit: ${error.response?.data?.message || error.message}`);
+        }
+      }
+      throw new Error(`Failed to fetch latest commit: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Get commit information by hash
+  async getCommitInfo(owner, repo, commitHash) {
+    try {
+      const response = await axios.get(`${this.baseURL}/repos/${owner}/${repo}/commits/${commitHash}`, {
+        headers: this.headers
+      });
+      return {
+        hash: response.data.sha,
+        message: response.data.commit.message,
+        date: new Date(response.data.commit.committer.date),
+        author: response.data.commit.author.name,
+        url: response.data.html_url,
+        stats: response.data.stats
+      };
+    } catch (error) {
+      throw new Error(`Failed to fetch commit info: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Add a repository collaborator
+  async addCollaborator(owner, repo, username, permission = 'push') {
+    try {
+      const response = await axios.put(`${this.baseURL}/repos/${owner}/${repo}/collaborators/${username}`, {
+        permission: permission
+      }, {
+        headers: {
+          ...this.headers,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28'
+        }
+      });
+      
+      return {
+        status: response.status,
+        data: response.data,
+        message: response.status === 201 ? 'Invitation sent successfully' : 'Collaborator added successfully'
+      };
+    } catch (error) {
+      if (error.response?.status === 422) {
+        throw new Error(`Validation failed: ${error.response.data.message || 'Invalid request'}`);
+      } else if (error.response?.status === 403) {
+        throw new Error('Forbidden: Insufficient permissions to add collaborator');
+      } else if (error.response?.status === 404) {
+        throw new Error('Repository or user not found');
+      }
+      throw new Error(`Failed to add collaborator: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Check if a user is a repository collaborator
+  async checkCollaborator(owner, repo, username) {
+    try {
+      const response = await axios.get(`${this.baseURL}/repos/${owner}/${repo}/collaborators/${username}`, {
+        headers: {
+          ...this.headers,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28'
+        }
+      });
+      
+      return {
+        isCollaborator: true,
+        permission: response.data.permission,
+        role_name: response.data.role_name
+      };
+    } catch (error) {
+      if (error.response?.status === 404) {
+        return {
+          isCollaborator: false,
+          permission: null,
+          role_name: null
+        };
+      }
+      throw new Error(`Failed to check collaborator status: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Remove a repository collaborator
+  async removeCollaborator(owner, repo, username) {
+    try {
+      const response = await axios.delete(`${this.baseURL}/repos/${owner}/${repo}/collaborators/${username}`, {
+        headers: {
+          ...this.headers,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28'
+        }
+      });
+      
+      return {
+        status: response.status,
+        message: 'Collaborator removed successfully'
+      };
+    } catch (error) {
+      if (error.response?.status === 404) {
+        throw new Error('Collaborator not found');
+      } else if (error.response?.status === 403) {
+        throw new Error('Forbidden: Insufficient permissions to remove collaborator');
+      }
+      throw new Error(`Failed to remove collaborator: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Get all repository collaborators
+  async getCollaborators(owner, repo) {
+    try {
+      const response = await axios.get(`${this.baseURL}/repos/${owner}/${repo}/collaborators`, {
+        headers: {
+          ...this.headers,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28'
+        },
+        params: {
+          per_page: 100
+        }
+      });
+      
+      return response.data.map(collaborator => ({
+        id: collaborator.id,
+        login: collaborator.login,
+        avatar_url: collaborator.avatar_url,
+        html_url: collaborator.html_url,
+        type: collaborator.type,
+        site_admin: collaborator.site_admin,
+        permissions: collaborator.permissions
+      }));
+    } catch (error) {
+      throw new Error(`Failed to fetch collaborators: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Get repository invitations
+  async getInvitations(owner, repo) {
+    try {
+      const response = await axios.get(`${this.baseURL}/repos/${owner}/${repo}/invitations`, {
+        headers: {
+          ...this.headers,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28'
+        }
+      });
+      
+      return response.data.map(invitation => ({
+        id: invitation.id,
+        login: invitation.invitee.login,
+        email: invitation.invitee.email,
+        permissions: invitation.permissions,
+        created_at: invitation.created_at,
+        url: invitation.html_url
+      }));
+    } catch (error) {
+      throw new Error(`Failed to fetch invitations: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // Parse repository URL to get owner and repo name
+  static parseRepoUrl(repoUrl) {
+    try {
+      const url = new URL(repoUrl);
+      const pathParts = url.pathname.split('/').filter(part => part);
+      
+      if (pathParts.length >= 2) {
+        return {
+          owner: pathParts[0],
+          repo: pathParts[1].replace(/\.git$/, '')
+        };
+      }
+      
+      throw new Error('Invalid repository URL format');
+    } catch (error) {
+      throw new Error(`Failed to parse repository URL: ${error.message}`);
+    }
+  }
+}
+
+export default GitHubService;

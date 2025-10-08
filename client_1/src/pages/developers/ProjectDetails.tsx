@@ -1,0 +1,2020 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import * as React from "react";
+import { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import {
+  Container,
+  Typography,
+  Box,
+  Button,
+  Tabs,
+  Tab,
+  LinearProgress,
+  Chip,
+  Card,
+  CardContent,
+  List,
+  ListItem,
+  ListItemText,
+  IconButton,
+  CircularProgress,
+  Alert,
+  TextField,
+  Rating,
+  Avatar,
+  Divider,
+  Snackbar,
+} from "@mui/material";
+import {
+  ArrowBack as ArrowBackIcon,
+  GitHub as GitHubIcon,
+  Description as DocumentationIcon,
+  Download as DownloadIcon,
+  Favorite as FavoriteIcon,
+  Send as SendIcon,
+  CloudUpload as CloudUploadIcon,
+  ContentCopy as ContentCopyIcon,
+  Refresh as RefreshIcon,
+  CheckCircle as CheckCircleIcon,
+  HourglassEmpty as HourglassEmptyIcon,
+  Cancel as CancelIcon,
+} from "@mui/icons-material";
+import { useAppSelector } from "../../hooks/useRedux";
+import Navigation from "../../components/Navigation";
+import AISummary from "../../components/AISummary";
+import CodeImplementations from "../../components/CodeImplementations";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+} from "../../components/ui/carousel";
+import { useAuth } from "../../context/AuthContext";
+import MermaidChart from "../../components/MermaidChart";
+
+interface TabPanelProps {
+  children?: React.ReactNode;
+  index: number;
+  value: number;
+}
+
+interface DeployInfo{
+  name: string,
+  repoId: string
+}
+
+interface BackendProject {
+  _id: string;
+  projectName: string;
+  projectDescription: string;
+  projectLink: string;
+  techStack: string[];
+  projectImgUrl?: string;
+  projectImgUrls?: string[];
+  projectVideoUrls?: string[];
+  demoUrl?: string;
+  deployedUrl?: string;
+  category: string;
+  difficulty: "beginner" | "intermediate" | "advanced";
+  estimatedTime: string;
+  tags: string[];
+  repoId?: string; // Added repoId field
+  user: {
+    _id: string;
+    name?: string;
+    username?: string;
+    avatar?: string;
+  };
+  collaborators?: Array<{
+    user: {
+      _id: string;
+      name?: string;
+      username?: string;
+      avatar?: string;
+    };
+    status: 'pending' | 'accepted' | 'declined';
+    invitedAt: string;
+    respondedAt?: string;
+  }>;
+  feedback: Array<{
+    _id: string;
+    mentor: {
+      _id: string;
+      name: string;
+      organization: string;
+      role: string;
+      profilePhotoUrl?: string;
+    };
+    feedbackText: string;
+    rating?: number;
+    createdAt: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function TabPanel(props: TabPanelProps) {
+  const { children, value, index, ...other } = props;
+
+  return (
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      id={`project-tabpanel-${index}`}
+      aria-labelledby={`project-tab-${index}`}
+      {...other}
+    >
+      {value === index && <Box sx={{ pt: 3 }}>{children}</Box>}
+    </div>
+  );
+}
+
+const ProjectDetails: React.FC = () => {
+  const { user, userType, mentor, accessToken } = useAuth();
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [tabValue, setTabValue] = useState(0);
+  const [project, setProject] = useState<BackendProject | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<any>(null);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [feedbackRating, setFeedbackRating] = useState<number | null>(null);
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [roadmapLoaded, setRoadmapLoaded] = useState(false);
+  const [roadmapLoading, setRoadmapLoading] = useState(false);
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: "",
+    severity: "success" as "success" | "error" | "warning" | "info",
+  });
+  const [name, setName] = useState("");
+  const [repoId, setRepoId] = useState("");
+  const [url, setUrl] = useState("");
+  const [deploying, setDeploying] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [collaborationStatus, setCollaborationStatus] = useState<{
+    isOwner: boolean;
+    collaboration: {
+      status: 'pending' | 'accepted' | 'declined';
+      invitedAt: string;
+      respondedAt?: string;
+    } | null;
+    githubStatus?: {
+      isCollaborator: boolean;
+      permission?: string;
+      role_name?: string;
+      error?: string;
+    } | null;
+  } | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [commits, setCommits] = useState<any[]>([]);
+  const [commitsLoading, setCommitsLoading] = useState(false);
+  const [commitsError, setCommitsError] = useState<string | null>(null);
+  const [isAdopting, setIsAdopting] = useState(false);
+
+  const apiBase =
+    (import.meta as any).env?.VITE_API_BASE_URL || "http://localhost:3000";
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setSnackbar({
+        open: true,
+        message: 'URL copied to clipboard!',
+        severity: 'success'
+      });
+    } catch (err) {
+      console.error('Failed to copy: ', err);
+      setSnackbar({
+        open: true,
+        message: 'Failed to copy URL',
+        severity: 'error'
+      });
+    }
+  };
+
+  const fetchCollaborationStatus = async () => {
+    if (!user?.id) return;
+    
+    try {
+      const response = await fetch(`${apiBase}/api/projects/${id}/collaboration-status?userId=${user.id}`);
+      if (response.ok) {
+        const status = await response.json();
+        setCollaborationStatus(status);
+        
+        // If status is pending, try to sync with GitHub to get latest status
+        if (status.collaboration?.status === 'pending') {
+          try {
+            const syncResponse = await fetch(`${apiBase}/api/projects/${id}/sync-github-status?userId=${user.id}`);
+            if (syncResponse.ok) {
+              const syncResult = await syncResponse.json();
+              if (syncResult.updatedStatus) {
+                // Re-fetch the updated status
+                const updatedResponse = await fetch(`${apiBase}/api/projects/${id}/collaboration-status?userId=${user.id}`);
+                if (updatedResponse.ok) {
+                  const updatedStatus = await updatedResponse.json();
+                  setCollaborationStatus(updatedStatus);
+                }
+              }
+            }
+          } catch (syncError) {
+            console.error('Error syncing GitHub status:', syncError);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching collaboration status:', error);
+    }
+  };
+
+  const refreshProjectData = async () => {
+    setIsRefreshing(true);
+    try {
+      // Refresh project data
+      const response = await fetch(`${apiBase}/api/projects/${id}`);
+      if (response.ok) {
+        const projectData = await response.json();
+        setProject(projectData);
+      }
+      
+      // Refresh collaboration status
+      await fetchCollaborationStatus();
+      
+      setSnackbar({
+        open: true,
+        message: 'Project data refreshed successfully!',
+        severity: 'success'
+      });
+    } catch (error) {
+      console.error('Error refreshing project data:', error);
+      setSnackbar({
+        open: true,
+        message: 'Failed to refresh project data',
+        severity: 'error'
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const fetchCommits = async () => {
+    if (!accessToken || !id) return;
+    
+    setCommitsLoading(true);
+    setCommitsError(null);
+    
+    try {
+      const response = await fetch(`${apiBase}/api/projects/${id}/commits?per_page=5`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          accessToken: accessToken
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch commits');
+      }
+
+      const data = await response.json();
+      setCommits(data.data || []);
+    } catch (error) {
+      console.error('Error fetching commits:', error);
+      setCommitsError(error instanceof Error ? error.message : 'Failed to fetch commits');
+    } finally {
+      setCommitsLoading(false);
+    }
+  };
+
+  const handleAdoptProject = async () => {
+    if (!user?.id || !id) return;
+
+    setIsAdopting(true);
+    try {
+      const response = await fetch(`${apiBase}/api/projects/${id}/adopt`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId: user.id }),
+      });
+
+      if (response.ok) {
+        // Update collaboration status
+        setCollaborationStatus({
+          isOwner: false,
+          collaboration: {
+            status: 'pending',
+            invitedAt: new Date().toISOString(),
+          }
+        });
+        
+        setSnackbar({
+          open: true,
+          message: 'Project adoption request sent successfully!',
+          severity: 'success'
+        });
+      } else {
+        const errorData = await response.json();
+        setSnackbar({
+          open: true,
+          message: errorData.error || 'Failed to adopt project',
+          severity: 'error'
+        });
+      }
+    } catch (error) {
+      console.error('Error adopting project:', error);
+      setSnackbar({
+        open: true,
+        message: 'Failed to adopt project',
+        severity: 'error'
+      });
+    } finally {
+      setIsAdopting(false);
+    }
+  };
+  const [mermaidCode, setMermaidCode] = useState("");
+  // const apiBase =
+  //   (import.meta as any).env?.VITE_API_BASE_URL || "http://localhost:3000";
+
+  useEffect(() => {
+    const fetchProject = async () => {
+      if (!id) {
+        setError("Project ID is required");
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+
+        const response = await fetch(`${apiBase}/api/projects/${id}`);
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            setError("Project not found");
+          } else {
+            setError("Failed to fetch project");
+          }
+          return;
+        }
+
+        const projectData = await response.json();
+        setProject(projectData);
+        console.log({project})
+        const aiResponse = await fetch(`${apiBase}/ai/generate`, {
+          method: "POST", // proper way to send body
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            projectDescription: projectData.projectDescription,
+          }),
+        });
+
+
+        const parsedAiResponse = await aiResponse.json();
+        setMermaidCode(parsedAiResponse.message);
+      } catch (err) {
+        setError("Failed to fetch project");
+        console.error("Error fetching project:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProject();
+  }, [id, apiBase]);
+
+  // Fetch collaboration status when component mounts
+  useEffect(() => {
+    fetchCollaborationStatus();
+  }, [id, user?.id, apiBase]);
+
+  // Fetch commits when component mounts and user has access token
+  useEffect(() => {
+    if (accessToken && id) {
+      fetchCommits();
+    }
+  }, [id, accessToken, apiBase]);
+
+
+  useEffect(() => {
+    if(project){
+      console.log({project})
+      setName(project.projectName)
+      setRepoId(project.projectLink) // This is the GitHub URL, not repoId
+      // Initialize URL from project data if it exists
+      if (project.deployedUrl) {
+        setUrl(project.deployedUrl)
+        // Only hide celebration on initial load, not when project is updated after deployment
+        if (isInitialLoad) {
+          setShowCelebration(false)
+        }
+      }
+      // Mark that initial load is complete
+      setIsInitialLoad(false)
+    }
+  }, [project, isInitialLoad])
+
+
+  useEffect(() => {
+    if(url) console.log("deployed url", url)
+  }, [url])
+
+
+  if (loading) {
+    return (
+      <>
+        <Navigation />
+        <Container
+          maxWidth="lg"
+          sx={{
+            py: 4,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            minHeight: "50vh",
+          }}
+        >
+          <CircularProgress />
+        </Container>
+      </>
+    );
+  }
+
+  if (error || !project) {
+    return (
+      <>
+        <Navigation />
+        <Container maxWidth="lg" sx={{ py: 4 }}>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error || "Project not found"}
+          </Alert>
+          <Box sx={{ textAlign: "center", mt: 2 }}>
+            <Button onClick={() => navigate("/")}>Back to Projects</Button>
+          </Box>
+        </Container>
+      </>
+    );
+  }
+
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setTabValue(newValue);
+    
+    // Load roadmap data when Roadmap tab is clicked for the first time
+    if (newValue === 2 && !roadmapLoaded && project) {
+      loadRoadmapData();
+    }
+    
+    // Fetch commits when Recent Commits tab is clicked
+    if (newValue === 1 && accessToken && id) {
+      fetchCommits();
+    }
+  };
+
+  const loadRoadmapData = async () => {
+    if (!project || roadmapLoaded || roadmapLoading) return;
+    
+    setRoadmapLoading(true);
+    try {
+      const aiResponse = await fetch(`${apiBase}/ai/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          projectDescription: project.projectDescription,
+        }),
+      });
+
+      if (!aiResponse.ok) {
+        throw new Error('Failed to generate roadmap');
+      }
+
+      const parsedAiResponse = await aiResponse.json();
+      setMermaidCode(parsedAiResponse.message);
+      setRoadmapLoaded(true);
+    } catch (error) {
+      console.error('Error loading roadmap data:', error);
+      setSnackbar({
+        open: true,
+        message: 'Failed to load roadmap data',
+        severity: 'error'
+      });
+    } finally {
+      setRoadmapLoading(false);
+    }
+  };
+
+  // Handler functions for the CodeImplementations component
+  const handleImplementationStart = (implementationIds: string[]) => {
+    // TODO: Connect to backend API for code generation
+    console.log("Starting implementation for:", implementationIds);
+    alert(`Starting implementation for ${implementationIds.length} item(s)`);
+  };
+
+  const handleGeneratePlan = (implementationIds: string[]) => {
+    // TODO: Connect to backend API for plan generation
+    console.log("Generating plan for:", implementationIds);
+    alert("Generating detailed implementation plan...");
+  };
+
+  const handleViewExamples = (implementationId: string) => {
+    // TODO: Show code examples modal or navigate to examples page
+    console.log("Viewing examples for:", implementationId);
+    alert(`Showing code examples for: ${implementationId}`);
+  };
+  const handleSubmitFeedback = async () => {
+    if (!feedbackText.trim() || !mentor) {
+      setSnackbar({
+        open: true,
+        message: "Please provide feedback text",
+        severity: "error",
+      });
+      return;
+    }
+
+    setSubmittingFeedback(true);
+    try {
+      const response = await fetch(`${apiBase}/api/projects/${id}/feedback`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mentorId: mentor._id,
+          feedbackText: feedbackText.trim(),
+          rating: feedbackRating,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to submit feedback");
+      }
+
+      const updatedProject = await response.json();
+      setProject(updatedProject);
+      setFeedbackText("");
+      setFeedbackRating(null);
+
+      setSnackbar({
+        open: true,
+        message: "Feedback submitted successfully!",
+        severity: "success",
+      });
+    } catch (error) {
+      console.error("Error submitting feedback:", error);
+      setSnackbar({
+        open: true,
+        message:
+          error instanceof Error ? error.message : "Failed to submit feedback",
+        severity: "error",
+      });
+    } finally {
+      setSubmittingFeedback(false);
+    }
+  };
+    // Parse repository URL to get owner and repo name
+    function parseRepoUrl(repoUrl: any) {
+      try {
+        const url = new URL(repoUrl);
+        const pathParts = url.pathname.split('/').filter(part => part);
+        
+        if (pathParts.length >= 2) {
+          return {
+            owner: pathParts[0],
+            repo: pathParts[1].replace(/\.git$/, '')
+          };
+        }
+        
+        throw new Error('Invalid repository URL format');
+      } catch (error) {
+        throw new Error(`Failed to parse repository URL: ${error.message}`);
+      }
+    }
+
+  const handleDeploy = async ({name, repoId}: DeployInfo) => {
+    try {
+      setDeploying(true);
+      console.log(project)
+      
+      console.log("handle deploy")
+      console.log({name, repoId})
+      
+      // Validate inputs
+      if (!name || !repoId) {
+        throw new Error('Project name and repository URL are required');
+      }
+      
+      if (!import.meta.env.VITE_VERCEL_TOKEN) {
+        throw new Error('Vercel token is not configured');
+      }
+      
+      const {owner, repo} = parseRepoUrl(repoId)
+      console.log(project.projectLink)
+      
+      const response = await fetch("https://api.vercel.com/v13/deployments?skipAutoDetectionConfirmation=1", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${import.meta.env.VITE_VERCEL_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: name,
+          gitSource: {
+            type: "github",
+            repoId: project?.repoId,
+            ref: "main", // or branch name
+          },
+        }),
+      });
+
+      const data = await response.json();
+      console.log('Vercel API Response:', data);
+      
+      if (!response.ok) {
+        throw new Error(data.error?.message || `HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      if (data.error) {
+        throw new Error(data.error.message || 'Deployment failed');
+      }
+      
+      // Extract the deployment URL from various possible response formats
+      let deploymentUrl = data.url || data.deploymentUrl || data.deployment?.url || data.deployment?.deploymentUrl;
+      console.log('Extracted deployment URL:', deploymentUrl);
+      
+      // Ensure the URL has a protocol
+      if (deploymentUrl && !deploymentUrl.startsWith('http')) {
+        deploymentUrl = `https://${deploymentUrl}`;
+        console.log('Added protocol to URL:', deploymentUrl);
+      }
+      
+      if (deploymentUrl && deploymentUrl.startsWith('http')) {
+        // Save the deployed URL to the database
+        try {
+          console.log('Saving deployed URL to database:', deploymentUrl);
+          const updateResponse = await fetch(`${apiBase}/api/projects/${id}/deployed-url`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              deployedUrl: deploymentUrl
+            }),
+          });
+
+          console.log('Database update response status:', updateResponse.status);
+
+          if (updateResponse.ok) {
+            const updatedProject = await updateResponse.json();
+            console.log('Updated project from database:', updatedProject);
+            setProject(updatedProject);
+            setUrl(deploymentUrl);
+            
+            // Show celebration for new deployment
+            setShowCelebration(true);
+            
+            setSnackbar({
+              open: true,
+              message: 'Deployment completed and saved successfully!',
+              severity: 'success'
+            });
+          } else {
+            const errorData = await updateResponse.json();
+            console.error('Database update failed:', errorData);
+            // Update the project state locally even if database update fails
+            setProject(prevProject => prevProject ? { ...prevProject, deployedUrl: deploymentUrl } : null);
+            setUrl(deploymentUrl);
+            
+            // Show celebration even if database update fails
+            setShowCelebration(true);
+            
+            setSnackbar({
+              open: true,
+              message: 'Deployment completed but failed to save URL to database',
+              severity: 'warning'
+            });
+          }
+        } catch (dbError) {
+          console.error('Error saving deployed URL to database:', dbError);
+          // Update the project state locally even if database update fails
+          setProject(prevProject => prevProject ? { ...prevProject, deployedUrl: deploymentUrl } : null);
+          setUrl(deploymentUrl);
+          
+          // Show celebration even if database update fails
+          setShowCelebration(true);
+          
+          setSnackbar({
+            open: true,
+            message: 'Deployment completed but failed to save URL to database',
+            severity: 'warning'
+          });
+        }
+      } else {
+        // Even if we can't save to database, show the URL in UI
+        if (deploymentUrl) {
+          setUrl(deploymentUrl);
+          // Try to save to database anyway
+          try {
+            const updateResponse = await fetch(`${apiBase}/api/projects/${id}/deployed-url`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                deployedUrl: deploymentUrl
+              }),
+            });
+            if (updateResponse.ok) {
+              const updatedProject = await updateResponse.json();
+              setProject(updatedProject);
+              setShowCelebration(true);
+            } else {
+              // Update the project state locally even if database update fails
+              setProject(prevProject => prevProject ? { ...prevProject, deployedUrl: deploymentUrl } : null);
+              setShowCelebration(true);
+            }
+          } catch (dbError) {
+            console.error('Error saving deployed URL to database:', dbError);
+            // Update the project state locally even if database update fails
+            setProject(prevProject => prevProject ? { ...prevProject, deployedUrl: deploymentUrl } : null);
+            setShowCelebration(true);
+          }
+        }
+        
+        setSnackbar({
+          open: true,
+          message: deploymentUrl ? 'Deployment completed successfully!' : 'Deployment initiated successfully!',
+          severity: 'success'
+        });
+      }
+    } catch (err) {
+      console.log(`Error in handleDeploy: ${err}`);
+      setSnackbar({
+        open: true,
+        message: `Deployment failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        severity: 'error'
+      });
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  return (
+    <>
+      <Navigation />
+      <Container maxWidth="lg" sx={{ py: 4 }}>
+        {/* Header */}
+        <Box sx={{ mb: 4 }}>
+          <Button
+            startIcon={<ArrowBackIcon />}
+            onClick={() => navigate("/")}
+            sx={{ mb: 2 }}
+          >
+            Back to Projects
+          </Button>
+
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              mb: 2,
+            }}
+          >
+            <Box sx={{ flexGrow: 1 }}>
+              <Typography variant="h3" sx={{ fontWeight: 700, mb: 1 }}>
+                {project.projectName}
+              </Typography>
+              <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
+                {project.projectDescription}
+              </Typography>
+            </Box>
+
+            <Box sx={{ ml: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+              {/* Refresh Button */}
+              <Button
+                variant="outlined"
+                startIcon={isRefreshing ? <CircularProgress size={20} /> : <RefreshIcon />}
+                onClick={refreshProjectData}
+                disabled={isRefreshing}
+                sx={{ 
+                  borderColor: 'primary.main',
+                  color: 'primary.main',
+                  '&:hover': { 
+                    borderColor: 'primary.dark',
+                    bgcolor: 'primary.light'
+                  }
+                }}
+              >
+                {isRefreshing ? 'Refreshing...' : 'Refresh'}
+              </Button>
+
+              {/* Deploy/View Live Site Buttons */}
+              {project?.deployedUrl ? (
+                <>
+                  <Button
+                    variant="contained"
+                    startIcon={<CloudUploadIcon />}
+                    onClick={() => window.open(project.deployedUrl, '_blank')}
+                    sx={{ 
+                      bgcolor: 'success.main',
+                      '&:hover': { bgcolor: 'success.dark' }
+                    }}
+                  >
+                    View Live Site
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    startIcon={<ContentCopyIcon />}
+                    onClick={() => copyToClipboard(project.deployedUrl)}
+                    sx={{ 
+                      borderColor: 'success.main',
+                      color: 'success.main',
+                      '&:hover': { 
+                        borderColor: 'success.dark',
+                        bgcolor: 'success.light'
+                      }
+                    }}
+                  >
+                    Copy URL
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="contained"
+                  startIcon={deploying ? <CircularProgress size={20} /> : <CloudUploadIcon />}
+                  onClick={() => handleDeploy({name, repoId})}
+                  disabled={deploying || !name || !repoId}
+                >
+                  {deploying ? 'Deploying...' : 'Deploy'}
+                </Button>
+              )}
+            </Box>
+          </Box>
+
+          {/* Celebration Card for New Deployment */}
+          {showCelebration && (
+            <Box sx={{ mb: 3 }}>
+              <Card sx={{ 
+                bgcolor: 'success.light', 
+                color: 'success.contrastText',
+                border: '2px solid',
+                borderColor: 'success.main',
+                boxShadow: '0 4px 20px rgba(76, 175, 80, 0.3)'
+              }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Box sx={{ 
+                      fontSize: '3rem',
+                      animation: 'bounce 1s infinite',
+                      '@keyframes bounce': {
+                        '0%, 20%, 50%, 80%, 100%': { transform: 'translateY(0)' },
+                        '40%': { transform: 'translateY(-10px)' },
+                        '60%': { transform: 'translateY(-5px)' }
+                      }
+                    }}>
+                      🎉
+                    </Box>
+                    <Box sx={{ flexGrow: 1 }}>
+                      <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
+                        Congratulations! 🚀
+                      </Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+                        Your project has been deployed successfully!
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 2, opacity: 0.9 }}>
+                        Your application is now live and accessible to the world. Share it with others and start getting feedback!
+                      </Typography>
+                      {project?.deployedUrl && (
+                        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <Button
+                            variant="contained"
+                            color="inherit"
+                            onClick={() => window.open(project.deployedUrl, '_blank')}
+                            sx={{ 
+                              bgcolor: 'white', 
+                              color: 'success.main',
+                              fontWeight: 600,
+                              '&:hover': { bgcolor: 'grey.100' }
+                            }}
+                          >
+                            🌐 View Live Site
+                          </Button>
+                          <Button
+                            variant="outlined"
+                            color="inherit"
+                            startIcon={<ContentCopyIcon />}
+                            onClick={() => copyToClipboard(project.deployedUrl)}
+                            sx={{ 
+                              borderColor: 'white',
+                              color: 'white',
+                              fontWeight: 600,
+                              '&:hover': { 
+                                borderColor: 'white',
+                                bgcolor: 'rgba(255, 255, 255, 0.1)'
+                              }
+                            }}
+                          >
+                            Copy URL
+                          </Button>
+                        </Box>
+                      )}
+                    </Box>
+                    <IconButton
+                      onClick={() => setShowCelebration(false)}
+                      sx={{ 
+                        color: 'white',
+                        '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.1)' }
+                      }}
+                    >
+                      ✕
+                    </IconButton>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Box>
+          )}
+
+          {/* Collaboration Status Card */}
+          {userType === "developer" && collaborationStatus && (
+            <Box sx={{ mb: 3 }}>
+              <Card sx={{ 
+                bgcolor: collaborationStatus.isOwner ? 'info.light' : 
+                         collaborationStatus.collaboration?.status === 'accepted' ? 'success.light' :
+                         collaborationStatus.collaboration?.status === 'pending' ? 'warning.light' :
+                         'grey.100',
+                border: '2px solid',
+                borderColor: collaborationStatus.isOwner ? 'info.main' : 
+                             collaborationStatus.collaboration?.status === 'accepted' ? 'success.main' :
+                             collaborationStatus.collaboration?.status === 'pending' ? 'warning.main' :
+                             'grey.300'
+              }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    {collaborationStatus.isOwner ? (
+                      <>
+                        <CheckCircleIcon sx={{ fontSize: '2rem', color: 'info.main' }} />
+                        <Box sx={{ flexGrow: 1 }}>
+                          <Typography variant="h6" sx={{ fontWeight: 700, mb: 1, color: '#1a1a1a' }}>
+                            Project Owner
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: '#4a4a4a' }}>
+                            You are the owner of this project. You can manage collaborators and project settings.
+                          </Typography>
+                        </Box>
+                      </>
+                    ) : collaborationStatus.collaboration?.status === 'accepted' ? (
+                      <>
+                        <CheckCircleIcon sx={{ fontSize: '2rem', color: 'success.main' }} />
+                        <Box sx={{ flexGrow: 1 }}>
+                          <Typography variant="h6" sx={{ fontWeight: 700, mb: 1, color: '#1a1a1a' }}>
+                            Active Collaborator
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: '#4a4a4a' }}>
+                            You are an active collaborator on this project. You can contribute to the codebase and participate in discussions.
+                          </Typography>
+                        </Box>
+                      </>
+                    ) : collaborationStatus.collaboration?.status === 'pending' ? (
+                      <>
+                        <HourglassEmptyIcon sx={{ fontSize: '2rem', color: 'warning.main' }} />
+                        <Box sx={{ flexGrow: 1 }}>
+                          <Typography variant="h6" sx={{ fontWeight: 700, mb: 1, color: '#1a1a1a' }}>
+                            Invitation Pending
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: '#4a4a4a' }}>
+                            Your collaboration request is pending approval from the project owner. Check back later or contact the owner directly.
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#6a6a6a', mt: 1, display: 'block' }}>
+                            Requested on: {new Date(collaborationStatus.collaboration.invitedAt).toLocaleDateString()}
+                          </Typography>
+                        </Box>
+                      </>
+                    ) : collaborationStatus.collaboration?.status === 'declined' ? (
+                      <>
+                        <CancelIcon sx={{ fontSize: '2rem', color: 'error.main' }} />
+                        <Box sx={{ flexGrow: 1 }}>
+                          <Typography variant="h6" sx={{ fontWeight: 700, mb: 1, color: '#1a1a1a' }}>
+                            Invitation Declined
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: '#4a4a4a' }}>
+                            Your collaboration request was declined. You can try requesting again or contact the project owner for more information.
+                          </Typography>
+                        </Box>
+                      </>
+                    ) : (
+                      <>
+                        <Box sx={{ 
+                          width: '3rem', 
+                          height: '3rem', 
+                          borderRadius: '50%', 
+                          bgcolor: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+                          position: 'relative',
+                          '&::before': {
+                            content: '""',
+                            position: 'absolute',
+                            top: '-2px',
+                            left: '-2px',
+                            right: '-2px',
+                            bottom: '-2px',
+                            borderRadius: '50%',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            zIndex: -1,
+                            opacity: 0.3,
+                            filter: 'blur(4px)'
+                          }
+                        }}>
+                          <Box
+                            sx={{
+                              width: '1.5rem',
+                              height: '1.5rem',
+                              borderRadius: '50%',
+                              bgcolor: 'white',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
+                            }}
+                          >
+                            <Typography variant="caption" sx={{ 
+                              color: '#667eea', 
+                              fontWeight: 700,
+                              fontSize: '0.9rem'
+                            }}>
+                              +
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Box sx={{ flexGrow: 1 }}>
+                          <Typography variant="h6" sx={{ fontWeight: 700, mb: 1, color: '#1a1a1a' }}>
+                            Not a Collaborator
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: '#4a4a4a', mb: 2, lineHeight: 1.6 }}>
+                            You are not currently a collaborator on this project. Join the development team to contribute to this amazing project!
+                          </Typography>
+                          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                            <Chip
+                              label="Request Access"
+                              size="small"
+                              sx={{
+                                bgcolor: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                color: 'white',
+                                fontWeight: 600,
+                                '&:hover': {
+                                  bgcolor: 'linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)',
+                                }
+                              }}
+                            />
+                            <Chip
+                              label="View Repository"
+                              variant="outlined"
+                              size="small"
+                              sx={{
+                                borderColor: '#667eea',
+                                color: '#667eea',
+                                fontWeight: 600,
+                                '&:hover': {
+                                  bgcolor: 'rgba(102, 126, 234, 0.1)',
+                                }
+                              }}
+                            />
+                          </Box>
+                        </Box>
+                        <Box sx={{ ml: 2 }}>
+                          <Button
+                            variant="contained"
+                            size="medium"
+                            onClick={handleAdoptProject}
+                            disabled={isAdopting}
+                            sx={{
+                              bgcolor: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                              color: 'white',
+                              fontWeight: 600,
+                              px: 3,
+                              py: 1.5,
+                              borderRadius: 2,
+                              boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+                              '&:hover': {
+                                bgcolor: 'linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)',
+                                boxShadow: '0 6px 20px rgba(102, 126, 234, 0.4)',
+                                transform: 'translateY(-2px)',
+                              },
+                              '&:disabled': {
+                                bgcolor: 'grey.400',
+                                color: 'grey.600',
+                                boxShadow: 'none',
+                                transform: 'none',
+                              },
+                              transition: 'all 0.3s ease',
+                            }}
+                          >
+                            {isAdopting ? (
+                              <>
+                                <CircularProgress size={16} sx={{ mr: 1 }} />
+                                Adopting...
+                              </>
+                            ) : (
+                              'Adopt Project'
+                            )}
+                          </Button>
+                        </Box>
+                      </>
+                    )}
+                  </Box>
+                  
+                  {/* GitHub Status Indicator */}
+                  {collaborationStatus.githubStatus && !collaborationStatus.isOwner && (
+                    <Box sx={{ 
+                      mt: 3, 
+                      p: 3, 
+                      bgcolor: 'rgba(102, 126, 234, 0.05)', 
+                      borderRadius: 2,
+                      border: '1px solid rgba(102, 126, 234, 0.1)',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      '&::before': {
+                        content: '""',
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: '3px',
+                        background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)',
+                      }
+                    }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2, color: '#1a1a1a' }}>
+                        GitHub Repository Status
+                      </Typography>
+                      {collaborationStatus.githubStatus.error ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                          <Box sx={{
+                            width: '2rem',
+                            height: '2rem',
+                            borderRadius: '50%',
+                            bgcolor: 'error.light',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}>
+                            <CancelIcon sx={{ color: 'error.main', fontSize: 18 }} />
+                          </Box>
+                          <Box>
+                            <Typography variant="body2" color="error" sx={{ fontWeight: 600 }}>
+                              Error checking GitHub status
+                            </Typography>
+                            <Typography variant="caption" color="error" sx={{ opacity: 0.8 }}>
+                              {collaborationStatus.githubStatus.error}
+                            </Typography>
+                          </Box>
+                        </Box>
+                      ) : collaborationStatus.githubStatus.isCollaborator ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                          <Box sx={{
+                            width: '2rem',
+                            height: '2rem',
+                            borderRadius: '50%',
+                            bgcolor: 'success.light',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}>
+                            <CheckCircleIcon sx={{ color: 'success.main', fontSize: 18 }} />
+                          </Box>
+                          <Box>
+                            <Typography variant="body2" sx={{ fontWeight: 600, color: '#1a1a1a' }}>
+                              GitHub Collaborator
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: '#4a4a4a' }}>
+                              You have access to the repository
+                            </Typography>
+                          </Box>
+                        </Box>
+                      ) : (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                          <Box sx={{
+                            width: '2rem',
+                            height: '2rem',
+                            borderRadius: '50%',
+                            bgcolor: 'warning.light',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}>
+                            <CancelIcon sx={{ color: 'warning.main', fontSize: 18 }} />
+                          </Box>
+                          <Box>
+                            <Typography variant="body2" sx={{ fontWeight: 600, color: '#1a1a1a' }}>
+                              No GitHub Access
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: '#4a4a4a' }}>
+                              Request collaboration to get repository access
+                            </Typography>
+                          </Box>
+                        </Box>
+                      )}
+                    </Box>
+                  )}
+                </CardContent>
+              </Card>
+            </Box>
+          )}
+
+          <Tabs value={tabValue} onChange={handleTabChange}>
+            <Tab label="Overview" />
+            <Tab label="Project Timeline" />
+            <Tab label="Roadmap" />
+            <Tab label="AI Summary" />
+            <Tab label="Code Implementations" />
+            {userType === "developer" &&
+              project?.feedback &&
+              project.feedback.length > 0 && (
+                <Tab label={`Feedback (${project.feedback.length})`} />
+              )}
+          </Tabs>
+        </Box>
+
+        {/* Overview Tab */}
+        <TabPanel value={tabValue} index={0}>
+          {/* Demo Section */}
+          <Box sx={{ mb: 4 }}>
+            <Typography variant="h5" sx={{ fontWeight: 600, mb: 2 }}>
+              Demo
+            </Typography>
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                {(() => {
+                  // Combine images and videos into a single array for the carousel
+                  const mediaItems = [];
+
+                  // Add videos
+                  if (
+                    project.projectVideoUrls &&
+                    project.projectVideoUrls.length > 0
+                  ) {
+                    project.projectVideoUrls.forEach((videoUrl, index) => {
+                      mediaItems.push({
+                        type: "video",
+                        url: videoUrl,
+                        alt: `Project video ${index + 1}`,
+                      });
+                    });
+                  }
+                  // Add images
+                  if (
+                    project.projectImgUrls &&
+                    project.projectImgUrls.length > 0
+                  ) {
+                    project.projectImgUrls.forEach((imgUrl, index) => {
+                      mediaItems.push({
+                        type: "image",
+                        url: imgUrl,
+                        alt: `Project screenshot ${index + 1}`,
+                      });
+                    });
+                  } else if (project.projectImgUrl) {
+                    mediaItems.push({
+                      type: "image",
+                      url: project.projectImgUrl,
+                      alt: "Project screenshot",
+                    });
+                  }
+
+                  if (mediaItems.length === 0) {
+                    return (
+                      <Box
+                        sx={{
+                          width: "100%",
+                          height: 400,
+                          bgcolor: "hsl(var(--muted))",
+                          borderRadius: 1,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Typography color="text.secondary">
+                          No demo media available
+                        </Typography>
+                      </Box>
+                    );
+                  }
+
+                  if (mediaItems.length === 1) {
+                    const item = mediaItems[0];
+                    return (
+                      <Box
+                        sx={{
+                          position: "relative",
+                          width: "100%",
+                          height: 400,
+                        }}
+                      >
+                        {item.type === "image" ? (
+                          <Box
+                            component="img"
+                            src={item.url}
+                            alt={item.alt}
+                            sx={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                              borderRadius: 1,
+                              border: "1px solid",
+                              borderColor: "divider",
+                            }}
+                          />
+                        ) : (
+                          <Box
+                            component="video"
+                            src={item.url}
+                            controls
+                            sx={{
+                              width: "100%",
+                              height: "100%",
+                              borderRadius: 1,
+                              border: "1px solid",
+                              borderColor: "divider",
+                            }}
+                          />
+                        )}
+                      </Box>
+                    );
+                  }
+
+                  // Multiple items - use carousel
+                  return (
+                    <Box sx={{ position: "relative", width: "100%" }}>
+                      <Carousel className="w-full">
+                        <CarouselContent>
+                          {mediaItems.map((item, index) => (
+                            <CarouselItem key={index}>
+                              <Box
+                                sx={{
+                                  position: "relative",
+                                  width: "100%",
+                                  height: 400,
+                                }}
+                              >
+                                {item.type === "image" ? (
+                                  <Box
+                                    component="img"
+                                    src={item.url}
+                                    alt={item.alt}
+                                    sx={{
+                                      width: "100%",
+                                      height: "100%",
+                                      objectFit: "cover",
+                                      borderRadius: 1,
+                                      border: "1px solid",
+                                      borderColor: "divider",
+                                    }}
+                                  />
+                                ) : (
+                                  <Box
+                                    component="video"
+                                    src={item.url}
+                                    controls
+                                    sx={{
+                                      width: "100%",
+                                      height: "100%",
+                                      borderRadius: 1,
+                                      border: "1px solid",
+                                      borderColor: "divider",
+                                    }}
+                                  />
+                                )}
+                              </Box>
+                            </CarouselItem>
+                          ))}
+                        </CarouselContent>
+                        <CarouselPrevious />
+                        <CarouselNext />
+                      </Carousel>
+                    </Box>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          </Box>
+
+          {/* Project Details */}
+          <Box sx={{ mb: 4 }}>
+            <Typography variant="h5" sx={{ fontWeight: 600, mb: 2 }}>
+              Project Details
+            </Typography>
+            <Card>
+              <CardContent>
+                <Typography variant="body1" sx={{ mb: 3 }}>
+                  {project.projectDescription}
+                </Typography>
+
+                <Box sx={{ display: "flex", gap: 2, mb: 3, flexWrap: "wrap" }}>
+                  <Chip
+                    label={`Category: ${project.category || "Not specified"}`}
+                    variant="outlined"
+                    color="primary"
+                  />
+                  <Chip
+                    label={`Difficulty: ${project.difficulty}`}
+                    variant="outlined"
+                    color="secondary"
+                  />
+                  <Chip
+                    label={`Estimated Time: ${
+                      project.estimatedTime || "Not specified"
+                    }`}
+                    variant="outlined"
+                    color="default"
+                  />
+                </Box>
+
+                {project.tags && project.tags.length > 0 && (
+                  <>
+                    <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                      Tags
+                    </Typography>
+                    <Box
+                      sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 2 }}
+                    >
+                      {project.tags.map((tag, index) => (
+                        <Chip
+                          key={index}
+                          label={tag}
+                          variant="outlined"
+                          size="small"
+                        />
+                      ))}
+                    </Box>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </Box>
+
+          {/* Current Status */}
+          <Box sx={{ mb: 4 }}>
+            <Typography variant="h5" sx={{ fontWeight: 600, mb: 2 }}>
+              Project Information
+            </Typography>
+            <Card>
+              <CardContent>
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    mb: 2,
+                  }}
+                >
+                  <Typography variant="body1">Created</Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    {new Date(project.createdAt).toLocaleDateString()}
+                  </Typography>
+                </Box>
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    mb: 2,
+                  }}
+                >
+                  <Typography variant="body1">Last Updated</Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    {new Date(project.updatedAt).toLocaleDateString()}
+                  </Typography>
+                </Box>
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    mb: 2,
+                  }}
+                >
+                  <Typography variant="body1">Author</Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    {project.user?.name || project.user?.username || "Unknown"}
+                  </Typography>
+                </Box>
+              </CardContent>
+            </Card>
+          </Box>
+
+          {/* Tech Stack */}
+          <Box sx={{ mb: 4 }}>
+            <Typography variant="h5" sx={{ fontWeight: 600, mb: 2 }}>
+              Tech Stack
+            </Typography>
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+              {project.techStack && project.techStack.length > 0 ? (
+                project.techStack.map((tech, index) => (
+                  <Chip
+                    key={index}
+                    label={tech}
+                    variant="outlined"
+                    sx={{
+                      bgcolor: "hsl(var(--primary))",
+                      color: "white",
+                      borderColor: "hsl(var(--primary))",
+                    }}
+                  />
+                ))
+              ) : (
+                <Typography color="text.secondary">
+                  No tech stack specified
+                </Typography>
+              )}
+            </Box>
+          </Box>
+
+          {/* Links */}
+          <Box sx={{ mb: 4 }}>
+            <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+              {project.projectLink && (
+                <Button
+                  variant="outlined"
+                  startIcon={<GitHubIcon />}
+                  onClick={() => window.open(project.projectLink, "_blank")}
+                >
+                  GitHub Repository
+                </Button>
+              )}
+              {project.demoUrl && (
+                <Button
+                  variant="outlined"
+                  startIcon={<DownloadIcon />}
+                  onClick={() => window.open(project.demoUrl, "_blank")}
+                >
+                  Live Demo
+                </Button>
+              )}
+              <Button variant="outlined" startIcon={<DocumentationIcon />}>
+                Read the full project documentation
+              </Button>
+            </Box>
+          </Box>
+        </TabPanel>
+
+        {/* Recent Commits Tab */}
+        <TabPanel value={tabValue} index={1}>
+          <Box sx={{ mb: 4 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+              <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                Recent Commits
+              </Typography>
+              <Button
+                variant="outlined"
+                startIcon={commitsLoading ? <CircularProgress size={20} /> : <RefreshIcon />}
+                onClick={fetchCommits}
+                disabled={commitsLoading || !accessToken}
+                size="small"
+              >
+                {commitsLoading ? 'Loading...' : 'Refresh'}
+              </Button>
+            </Box>
+            
+            <Card>
+              <CardContent sx={{ p: 4 }}>
+                {commitsLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 4 }}>
+                    <CircularProgress sx={{ mr: 2 }} />
+                    <Typography variant="body1" color="text.secondary">
+                      Loading recent commits...
+                    </Typography>
+                  </Box>
+                ) : commitsError ? (
+                  <Box sx={{ textAlign: 'center', py: 4 }}>
+                    <Alert severity="error" sx={{ mb: 2 }}>
+                      {commitsError}
+                    </Alert>
+                    <Button
+                      variant="outlined"
+                      onClick={fetchCommits}
+                      disabled={!accessToken}
+                    >
+                      Try Again
+                    </Button>
+                  </Box>
+                ) : commits.length === 0 ? (
+                  <Box sx={{ textAlign: 'center', py: 4 }}>
+                    <Typography variant="body1" color="text.secondary">
+                      No commits found or unable to access repository
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      position: 'relative',
+                      width: '100%',
+                      py: 3,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {/* Connecting Line */}
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '10%',
+                        right: '10%',
+                        height: '4px',
+                        background: 'linear-gradient(90deg, hsl(220, 85%, 60%), hsl(260, 75%, 70%), hsl(200, 100%, 65%))',
+                        borderRadius: '2px',
+                        zIndex: 1,
+                        '&::before': {
+                          content: '""',
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
+                          animation: 'flow 3s ease-in-out infinite',
+                        },
+                        '@keyframes flow': {
+                          '0%': { transform: 'translateX(-100%)' },
+                          '50%': { transform: 'translateX(100%)' },
+                          '100%': { transform: 'translateX(-100%)' },
+                        },
+                      }}
+                    />
+
+                    {/* Timeline Items */}
+                    {commits.map((commit, index) => (
+                      <Box
+                        key={commit.id}
+                        sx={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          position: 'relative',
+                          zIndex: 2,
+                          flex: 1,
+                          maxWidth: '180px',
+                          transition: 'transform 0.3s ease',
+                          '&:hover': {
+                            transform: 'translateY(-8px)',
+                          },
+                        }}
+                      >
+                        {/* Timeline Image */}
+                        <Box
+                          sx={{
+                            width: '120px',
+                            height: '120px',
+                            borderRadius: '50%',
+                            overflow: 'hidden',
+                            border: '4px solid',
+                            borderColor: 'hsl(220, 25%, 18%)',
+                            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.3)',
+                            position: 'relative',
+                            mb: 2,
+                            transition: 'all 0.3s ease',
+                            cursor: 'pointer',
+                          }}
+                          onClick={() => window.open(commit.url, '_blank')}
+                        >
+                          {commit.author.avatar ? (
+                            <Box
+                              component="img"
+                              src={commit.author.avatar}
+                              alt={commit.author.name}
+                              sx={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'cover',
+                              }}
+                            />
+                          ) : (
+                            <Box
+                              sx={{
+                                width: '100%',
+                                height: '100%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                bgcolor: 'hsl(220, 25%, 18%)',
+                                color: 'white',
+                                fontSize: '2rem',
+                                fontWeight: 700,
+                              }}
+                            >
+                              {commit.author.name.charAt(0).toUpperCase()}
+                            </Box>
+                          )}
+                          {/* Status indicator */}
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              top: 8,
+                              right: 8,
+                              width: '20px',
+                              height: '20px',
+                              borderRadius: '50%',
+                              bgcolor: 'hsl(140, 70%, 55%)',
+                              border: '2px solid white',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                bgcolor: 'white',
+                              }}
+                            />
+                          </Box>
+                        </Box>
+
+                        {/* Timeline Info */}
+                        <Typography
+                          variant="h6"
+                          sx={{
+                            fontWeight: 700,
+                            mb: 0.5,
+                            color: 'text.primary',
+                            textAlign: 'center',
+                          }}
+                        >
+                          {commit.author.name}
+                        </Typography>
+                        <Typography
+                          variant="body2"
+                          color="text.secondary"
+                          sx={{
+                            textAlign: 'center',
+                            mb: 1,
+                            lineHeight: 1.4,
+                            maxHeight: '2.8em',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                          }}
+                        >
+                          {commit.message}
+                        </Typography>
+                        <Chip
+                          label={new Date(commit.date).toLocaleDateString()}
+                          size="small"
+                          sx={{
+                            bgcolor: 'hsl(220, 25%, 12%)',
+                            color: 'hsl(220, 15%, 95%)',
+                            fontWeight: 600,
+                            fontSize: '0.75rem',
+                          }}
+                        />
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{
+                            mt: 0.5,
+                            fontFamily: 'monospace',
+                            fontSize: '0.7rem',
+                          }}
+                        >
+                          {commit.sha}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+          </Box>
+        </TabPanel>
+
+        {/* Roadmap Tab */}
+        <TabPanel value={tabValue} index={2}>
+          <Box sx={{ mb: 4 }}>
+            <Typography variant="h5" sx={{ fontWeight: 600, mb: 2 }}>
+              Road Map
+            </Typography>
+            {roadmapLoading ? (
+              <Card sx={{ mb: 3, p: 4, textAlign: 'center' }}>
+                <CircularProgress sx={{ mb: 2 }} />
+                <Typography variant="body1" color="text.secondary">
+                  Generating roadmap...
+                </Typography>
+              </Card>
+            ) : roadmapLoaded && mermaidCode ? (
+              <Card sx={{ mb: 3 }}>
+                <MermaidChart code={mermaidCode} />
+              </Card>
+            ) : (
+              <Card sx={{ mb: 3, p: 4, textAlign: 'center' }}>
+                <Typography variant="body1" color="text.secondary">
+                  Click to load roadmap
+                </Typography>
+                <Button
+                  variant="contained"
+                  onClick={loadRoadmapData}
+                  disabled={roadmapLoading}
+                  sx={{ mt: 2 }}
+                >
+                  Generate Roadmap
+                </Button>
+              </Card>
+            )}
+          </Box>
+        </TabPanel>
+
+        {/* AI Summary Tab */}
+        <TabPanel value={tabValue} index={3}>
+          <AISummary
+            projectName={project.projectName}
+            techStack={project.techStack || []}
+            difficulty={project.difficulty}
+            category={project.category || "Not specified"}
+            repoUrl={project.projectLink}
+            projectId={project._id}
+            onAnalysisUpdate={(analysis) => setAiAnalysis(analysis)}
+          />
+        </TabPanel>
+
+        {/* Code Implementations Tab */}
+        <TabPanel value={tabValue} index={4}>
+          <CodeImplementations
+            aiAnalysis={aiAnalysis}
+            projectName={project.projectName}
+            techStack={project.techStack || []}
+            repoUrl={project.projectLink}
+            onImplementationStart={handleImplementationStart}
+            onGeneratePlan={handleGeneratePlan}
+            onViewExamples={handleViewExamples}
+          />
+        </TabPanel>
+
+        {/* Feedback Tab - Only for Developers */}
+        {userType === "developer" && (
+          <TabPanel value={tabValue} index={5}>
+            <Box sx={{ mb: 4 }}>
+              <Typography variant="h5" sx={{ fontWeight: 600, mb: 2 }}>
+                Mentor Feedback
+              </Typography>
+              {project?.feedback && project.feedback.length > 0 ? (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  {project.feedback.map((feedback, index) => (
+                    <Card key={feedback._id} sx={{ mb: 2 }}>
+                      <CardContent>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: 2,
+                            mb: 2,
+                          }}
+                        >
+                          <Avatar
+                            src={feedback.mentor.profilePhotoUrl}
+                            alt={feedback.mentor.name}
+                            sx={{ width: 48, height: 48 }}
+                          />
+                          <Box sx={{ flexGrow: 1 }}>
+                            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                              {feedback.mentor.name}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {feedback.mentor.role} at{" "}
+                              {feedback.mentor.organization}
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                            >
+                              {new Date(
+                                feedback.createdAt
+                              ).toLocaleDateString()}
+                            </Typography>
+                          </Box>
+                          {feedback.rating && (
+                            <Rating
+                              value={feedback.rating}
+                              readOnly
+                              size="small"
+                            />
+                          )}
+                        </Box>
+                        <Typography variant="body1">
+                          {feedback.feedbackText}
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </Box>
+              ) : (
+                <Card>
+                  <CardContent>
+                    <Typography
+                      color="text.secondary"
+                      sx={{ textAlign: "center", py: 4 }}
+                    >
+                      No feedback received yet
+                    </Typography>
+                  </CardContent>
+                </Card>
+              )}
+            </Box>
+          </TabPanel>
+        )}
+
+        {/* Mentor Feedback Input Section */}
+        {userType === "mentor" && mentor && (
+          <Box sx={{ mt: 4, mb: 4 }}>
+            <Divider sx={{ mb: 3 }} />
+            <Card>
+              <CardContent>
+                <Typography variant="h5" sx={{ fontWeight: 600, mb: 2 }}>
+                  Provide Feedback
+                </Typography>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mb: 3 }}
+                >
+                  Share your thoughts and suggestions to help improve this
+                  project
+                </Typography>
+
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="body1" sx={{ mb: 1 }}>
+                    Rating (Optional)
+                  </Typography>
+                  <Rating
+                    value={feedbackRating}
+                    onChange={(event, newValue) => setFeedbackRating(newValue)}
+                    size="large"
+                  />
+                </Box>
+
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={4}
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  placeholder="Share your feedback, suggestions, or recommendations for this project..."
+                  variant="outlined"
+                  sx={{ mb: 3 }}
+                />
+
+                <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+                  <Button
+                    variant="contained"
+                    startIcon={<SendIcon />}
+                    onClick={handleSubmitFeedback}
+                    disabled={submittingFeedback || !feedbackText.trim()}
+                    sx={{
+                      bgcolor: "hsl(var(--primary))",
+                      "&:hover": { bgcolor: "hsl(var(--primary-hover))" },
+                    }}
+                  >
+                    {submittingFeedback ? "Submitting..." : "Submit Feedback"}
+                  </Button>
+                </Box>
+              </CardContent>
+            </Card>
+          </Box>
+        )}
+      </Container>
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
+      >
+        <Alert
+          onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
+          severity={snackbar.severity}
+          sx={{ width: "100%" }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </>
+  );
+};
+
+export default ProjectDetails;

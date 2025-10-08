@@ -1,0 +1,53 @@
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { Provider } from "react-redux";
+import { ThemeProvider } from "@mui/material/styles";
+import CssBaseline from "@mui/material/CssBaseline";
+import { store } from "./store/store";
+import { theme } from "./theme/theme";
+import Index from "./pages/developers/Index";
+import NotFound from "./pages/developers/NotFound";
+import ProjectDetails from "./pages/developers/ProjectDetails";
+import AddProject from "./pages/developers/AddProject";
+import MyProjects from "./pages/developers/MyProjects";
+import Explore from "./pages/developers/Explore";
+import Profile from "./pages/developers/Profile";
+import MentorForm from "./pages/mentors/MentorForm";
+import MentorProfile from "./pages/mentors/Profile";
+import MentorLogin from "./pages/mentors/Login";
+
+const queryClient = new QueryClient();
+
+const App = () => (
+  <Provider store={store}>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/project/:id" element={<ProjectDetails />} />
+              <Route path="/add-project" element={<AddProject />} />
+              <Route path="/my-projects" element={<MyProjects />} />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/mentor-form" element={<MentorForm />} />
+              <Route path="/mentor-profile" element={<MentorProfile />} />
+              <Route path="/mentor-login" element={<MentorLogin />} />
+              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="*" element={<NotFound />} />
+              <Route path="/explore" element={<Explore />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
+  </Provider>
+);
+
+export default App;
