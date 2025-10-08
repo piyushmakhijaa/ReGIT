@@ -1,4 +1,4 @@
-# EngiVerse - Masterplan.md
+# ReGIT - Masterplan.md
 
 ## 🚀 App Overview and Objectives
 
